@@ -25,6 +25,17 @@ class SteganographyApp:
         self.root.title("Steganografi Audio - Multiple LSB")
         self.root.geometry("800x600")
         
+        # Set application icon
+        try:
+            # Get the directory of the current script
+            script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            icon_path = os.path.join(script_dir, "assets", "headphones.ico")
+            if os.path.exists(icon_path):
+                self.root.iconbitmap(icon_path)
+        except Exception as e:
+            # If icon loading fails, continue without icon
+            print(f"Could not load icon: {e}")
+        
         # Initialize handlers
         self.audio_handler = AudioHandler()
         self.steganography = MultipleLSBSteganography()

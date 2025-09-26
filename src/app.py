@@ -259,6 +259,50 @@ class SteganographyApp:
         ttk.Label(extract_options_frame, text="Stego Key (if random):").grid(row=2, column=0, sticky=tk.W, pady=2)
         ttk.Entry(extract_options_frame, textvariable=self.stego_key).grid(row=2, column=1, sticky=(tk.W, tk.E), padx=(10, 0), pady=2)
         
+        # Audio Player frame (shared dengan embed tab)
+        extract_player_frame = ttk.LabelFrame(parent, text="Audio Player", padding="5")
+        extract_player_frame.grid(row=row, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+        extract_player_frame.columnconfigure(1, weight=1)
+        row += 1
+        
+        # Cover audio player (sama seperti di embed tab)
+        ttk.Label(extract_player_frame, text="Cover Audio:").grid(row=0, column=0, sticky=tk.W, pady=2)
+        
+        extract_cover_control_frame = ttk.Frame(extract_player_frame)
+        extract_cover_control_frame.grid(row=0, column=1, columnspan=2, sticky=tk.W, padx=(10, 0), pady=2)
+        
+        # Cover player buttons (referensi sama dengan embed tab)
+        self.extract_cover_play_btn = ttk.Button(extract_cover_control_frame, text="▶", width=3, 
+                                                command=self.toggle_cover_playback)
+        self.extract_cover_play_btn.grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
+        
+        self.extract_cover_stop_btn = ttk.Button(extract_cover_control_frame, text="⏹", width=3, 
+                                                command=self.stop_cover_playback)
+        self.extract_cover_stop_btn.grid(row=0, column=1, sticky=tk.W, padx=(0, 10))
+        
+        # Cover duration label (sama seperti di embed tab)
+        self.extract_cover_duration_label = ttk.Label(extract_cover_control_frame, textvariable=self.cover_duration, width=12)
+        self.extract_cover_duration_label.grid(row=0, column=2, sticky=tk.W, padx=(0, 0))
+        
+        # Stego audio player (sama seperti di embed tab)
+        ttk.Label(extract_player_frame, text="Stego Audio:").grid(row=1, column=0, sticky=tk.W, pady=2)
+        
+        extract_stego_control_frame = ttk.Frame(extract_player_frame)
+        extract_stego_control_frame.grid(row=1, column=1, columnspan=2, sticky=tk.W, padx=(10, 0), pady=2)
+        
+        # Stego player buttons (referensi sama dengan embed tab)
+        self.extract_stego_play_btn = ttk.Button(extract_stego_control_frame, text="▶", width=3, 
+                                                command=self.toggle_stego_playback, state="disabled")
+        self.extract_stego_play_btn.grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
+        
+        self.extract_stego_stop_btn = ttk.Button(extract_stego_control_frame, text="⏹", width=3, 
+                                                command=self.stop_stego_playback, state="disabled")
+        self.extract_stego_stop_btn.grid(row=0, column=1, sticky=tk.W, padx=(0, 10))
+        
+        # Stego duration label (sama seperti di embed tab)
+        self.extract_stego_duration_label = ttk.Label(extract_stego_control_frame, textvariable=self.stego_duration, width=12)
+        self.extract_stego_duration_label.grid(row=0, column=2, sticky=tk.W, padx=(0, 0))
+        
         # Extract button
         extract_btn = ttk.Button(parent, text="Extract Message", command=self.extract_message, 
                                style="Accent.TButton")
@@ -330,6 +374,9 @@ class SteganographyApp:
         )
         if filename:
             self.stego_file.set(filename)
+            # Auto-load file ke stego player jika belum ada atau berbeda
+            if self.stego_player.current_file != filename:
+                self.load_stego_audio_from_file(filename)
     
     def browse_extract_output(self):
         """Browse for extract output directory"""
@@ -357,15 +404,15 @@ class SteganographyApp:
         
         if self.cover_player.is_playing and not self.cover_player.is_paused:
             if self.cover_player.pause():
-                self.cover_play_btn.config(text="▶")
+                self.update_cover_button_states("▶")
         else:
             if self.cover_player.play():
-                self.cover_play_btn.config(text="⏸")
+                self.update_cover_button_states("⏸")
     
     def stop_cover_playback(self):
         """Stop cover audio playback"""
         if self.cover_player.stop():
-            self.cover_play_btn.config(text="▶")
+            self.update_cover_button_states("▶")
     
     def update_cover_display(self, position):
         """Callback untuk update display cover player"""
@@ -390,24 +437,26 @@ class SteganographyApp:
         
         if self.stego_player.is_playing and not self.stego_player.is_paused:
             if self.stego_player.pause():
-                self.stego_play_btn.config(text="▶")
+                self.update_stego_button_states("▶")
         else:
             if self.stego_player.play():
-                self.stego_play_btn.config(text="⏸")
+                self.update_stego_button_states("⏸")
     
     def stop_stego_playback(self):
         """Stop stego audio playback"""
         if self.stego_player.stop():
-            self.stego_play_btn.config(text="▶")
+            self.update_stego_button_states("▶")
     
     def load_stego_audio(self):
         """Load stego audio into player"""
         if self.output_file.get() and os.path.exists(self.output_file.get()):
             if self.stego_player.load(self.output_file.get()):
                 self.update_stego_duration_display()
-                # Enable stego player controls (scale tetap disabled karena seeking tidak didukung)
+                # Enable stego player controls di kedua tab
                 self.stego_play_btn.config(state="normal")
                 self.stego_stop_btn.config(state="normal")
+                self.extract_stego_play_btn.config(state="normal")
+                self.extract_stego_stop_btn.config(state="normal")
                 return True
         return False
     
@@ -424,6 +473,29 @@ class SteganographyApp:
         total_str = self.format_time(total)
         
         self.stego_duration.set(f"{current_str} / {total_str}")
+    
+    def load_stego_audio_from_file(self, file_path):
+        """Load stego audio dari file path yang diberikan"""
+        if file_path and os.path.exists(file_path):
+            if self.stego_player.load(file_path):
+                self.update_stego_duration_display()
+                # Enable stego player controls di kedua tab
+                self.stego_play_btn.config(state="normal")
+                self.stego_stop_btn.config(state="normal")
+                self.extract_stego_play_btn.config(state="normal")
+                self.extract_stego_stop_btn.config(state="normal")
+                return True
+        return False
+    
+    def update_cover_button_states(self, text):
+        """Update cover button states di kedua tab"""
+        self.cover_play_btn.config(text=text)
+        self.extract_cover_play_btn.config(text=text)
+    
+    def update_stego_button_states(self, text):
+        """Update stego button states di kedua tab"""
+        self.stego_play_btn.config(text=text)
+        self.extract_stego_play_btn.config(text=text)
     
     def format_time(self, seconds):
         """Format time in MM:SS format"""

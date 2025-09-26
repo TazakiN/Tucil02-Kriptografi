@@ -41,10 +41,8 @@ class SteganographyApp:
         self.extract_output = tk.StringVar()
         
         self.n_lsb = tk.IntVar(value=2)
-        self.use_encryption = tk.BooleanVar()
-        self.use_random_placement = tk.BooleanVar()
-        self.encryption_key = tk.StringVar()
-        self.stego_key = tk.StringVar()
+        self.key = tk.StringVar()
+        self.show_key = tk.BooleanVar()
         
         # Status variables
         self.status_text = tk.StringVar(value="Ready")
@@ -145,27 +143,19 @@ class SteganographyApp:
                                 state="readonly", width=10)
         lsb_combo.grid(row=0, column=1, sticky=tk.W, padx=(10, 0), pady=2)
         
-        # Use encryption checkbox
-        encryption_check = ttk.Checkbutton(options_frame, text="Use Encryption", 
-                                         variable=self.use_encryption,
-                                         command=self.toggle_encryption)
-        encryption_check.grid(row=1, column=0, sticky=tk.W, pady=2)
+        # Key for encryption and random placement
+        ttk.Label(options_frame, text="Key (Encryption & Random):").grid(row=1, column=0, sticky=tk.W, pady=2)
         
-        # Encryption key
-        self.encryption_key_entry = ttk.Entry(options_frame, textvariable=self.encryption_key, 
-                                            show="*", state="disabled")
-        self.encryption_key_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), padx=(10, 0), pady=2)
+        # Key input frame to hold entry and toggle button
+        key_frame = ttk.Frame(options_frame)
+        key_frame.grid(row=1, column=1, sticky=(tk.W, tk.E), padx=(10, 0), pady=2)
+        key_frame.columnconfigure(0, weight=1)
         
-        # Use random placement checkbox
-        random_check = ttk.Checkbutton(options_frame, text="Use Random Placement", 
-                                     variable=self.use_random_placement,
-                                     command=self.toggle_random_placement)
-        random_check.grid(row=2, column=0, sticky=tk.W, pady=2)
+        self.key_entry = ttk.Entry(key_frame, textvariable=self.key, show="*")
+        self.key_entry.grid(row=0, column=0, sticky=(tk.W, tk.E), padx=(0, 5))
         
-        # Stego key
-        self.stego_key_entry = ttk.Entry(options_frame, textvariable=self.stego_key, 
-                                       state="disabled")
-        self.stego_key_entry.grid(row=2, column=1, sticky=(tk.W, tk.E), padx=(10, 0), pady=2)
+        self.show_key_btn = ttk.Button(key_frame, text="Show", width=6, command=self.toggle_key_visibility)
+        self.show_key_btn.grid(row=0, column=1)
         
         # Audio Player frame
         player_frame = ttk.LabelFrame(parent, text="Audio Player", padding="5")
@@ -250,14 +240,19 @@ class SteganographyApp:
                                        values=[1, 2, 3, 4], state="readonly", width=10)
         extract_lsb_combo.grid(row=0, column=1, sticky=tk.W, padx=(10, 0), pady=2)
         
-        # Decryption key
-        ttk.Label(extract_options_frame, text="Decryption Key:").grid(row=1, column=0, sticky=tk.W, pady=2)
-        ttk.Entry(extract_options_frame, textvariable=self.encryption_key, 
-                 show="*").grid(row=1, column=1, sticky=(tk.W, tk.E), padx=(10, 0), pady=2)
+        # Key for decryption and random placement
+        ttk.Label(extract_options_frame, text="Key (Decryption & Random):").grid(row=1, column=0, sticky=tk.W, pady=2)
         
-        # Random placement (for extraction)
-        ttk.Label(extract_options_frame, text="Stego Key (if random):").grid(row=2, column=0, sticky=tk.W, pady=2)
-        ttk.Entry(extract_options_frame, textvariable=self.stego_key).grid(row=2, column=1, sticky=(tk.W, tk.E), padx=(10, 0), pady=2)
+        # Key input frame to hold entry and toggle button
+        extract_key_frame = ttk.Frame(extract_options_frame)
+        extract_key_frame.grid(row=1, column=1, sticky=(tk.W, tk.E), padx=(10, 0), pady=2)
+        extract_key_frame.columnconfigure(0, weight=1)
+        
+        self.extract_key_entry = ttk.Entry(extract_key_frame, textvariable=self.key, show="*")
+        self.extract_key_entry.grid(row=0, column=0, sticky=(tk.W, tk.E), padx=(0, 5))
+        
+        self.extract_show_key_btn = ttk.Button(extract_key_frame, text="Show", width=6, command=self.toggle_key_visibility)
+        self.extract_show_key_btn.grid(row=0, column=1)
         
         # Audio Player frame (shared dengan embed tab)
         extract_player_frame = ttk.LabelFrame(parent, text="Audio Player", padding="5")
@@ -308,21 +303,7 @@ class SteganographyApp:
                                style="Accent.TButton")
         extract_btn.grid(row=row, column=0, columnspan=3, pady=20)
     
-    def toggle_encryption(self):
-        """Toggle encryption key entry state"""
-        if self.use_encryption.get():
-            self.encryption_key_entry.config(state="normal")
-        else:
-            self.encryption_key_entry.config(state="disabled")
-            self.encryption_key.set("")
-    
-    def toggle_random_placement(self):
-        """Toggle stego key entry state"""
-        if self.use_random_placement.get():
-            self.stego_key_entry.config(state="normal")
-        else:
-            self.stego_key_entry.config(state="disabled")
-            self.stego_key.set("")
+
     
     def browse_cover_file(self):
         """Browse for cover audio file"""
@@ -385,6 +366,23 @@ class SteganographyApp:
         )
         if dirname:
             self.extract_output.set(dirname)
+    
+    def toggle_key_visibility(self):
+        """Toggle visibility of key in both embed and extract tabs"""
+        if self.show_key.get():
+            # Hide key
+            self.key_entry.config(show="*")
+            self.extract_key_entry.config(show="*")
+            self.show_key_btn.config(text="Show")
+            self.extract_show_key_btn.config(text="Show")
+            self.show_key.set(False)
+        else:
+            # Show key
+            self.key_entry.config(show="")
+            self.extract_key_entry.config(show="")
+            self.show_key_btn.config(text="Hide")
+            self.extract_show_key_btn.config(text="Hide")
+            self.show_key.set(True)
     
     # Audio Player Methods
     def load_cover_audio(self):
@@ -524,12 +522,8 @@ class SteganographyApp:
             messagebox.showerror("Error", "Please specify output file")
             return
         
-        if self.use_encryption.get() and not self.encryption_key.get():
-            messagebox.showerror("Error", "Please enter encryption key")
-            return
-        
-        if self.use_random_placement.get() and not self.stego_key.get():
-            messagebox.showerror("Error", "Please enter stego key for random placement")
+        if not self.key.get():
+            messagebox.showerror("Error", "Please enter key for encryption and random placement")
             return
         
         # Run embedding in separate thread
@@ -550,19 +544,18 @@ class SteganographyApp:
                 
                 self.update_progress(30, "Embedding message...")
                 
-                # Prepare parameters
-                encryption_key = self.encryption_key.get() if self.use_encryption.get() else None
-                stego_key = self.stego_key.get() if self.use_random_placement.get() else None
+                # Use the unified key for both encryption and random placement
+                unified_key = self.key.get()
                 
-                # Embed message
+                # Embed message (always use encryption and random placement)
                 stego_samples, embed_status = self.steganography.embed(
                     audio_samples=cover_samples,
                     secret_data=secret_data,
                     n_lsb=self.n_lsb.get(),
                     filename=secret_filename,
-                    encryption_key=encryption_key,
-                    use_random_placement=self.use_random_placement.get(),
-                    stego_key=stego_key
+                    encryption_key=unified_key,
+                    use_random_placement=True,
+                    stego_key=unified_key
                 )
                 
                 self.update_progress(70, "Calculating PSNR...")
@@ -609,6 +602,10 @@ class SteganographyApp:
             messagebox.showerror("Error", "Please specify output directory")
             return
         
+        if not self.key.get():
+            messagebox.showerror("Error", "Please enter key for decryption and random placement")
+            return
+        
         # Run extraction in separate thread
         def extract_worker():
             try:
@@ -619,18 +616,16 @@ class SteganographyApp:
                 
                 self.update_progress(30, "Extracting message...")
                 
-                # Prepare parameters
-                decryption_key = self.encryption_key.get() if self.encryption_key.get() else None
-                stego_key = self.stego_key.get() if self.stego_key.get() else None
-                use_random = bool(stego_key)
+                # Use the unified key for both decryption and random placement
+                unified_key = self.key.get()
                 
-                # Extract message
+                # Extract message (always use decryption and random placement)
                 filename, extracted_data, extract_status = self.steganography.extract(
                     stego_samples=stego_samples,
                     n_lsb=self.n_lsb.get(),
-                    decryption_key=decryption_key,
-                    use_random_placement=use_random,
-                    stego_key=stego_key
+                    decryption_key=unified_key,
+                    use_random_placement=True,
+                    stego_key=unified_key
                 )
                 
                 self.update_progress(80, "Saving extracted file...")

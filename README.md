@@ -7,7 +7,7 @@ Aplikasi desktop Python untuk menyembunyikan dan mengekstrak pesan rahasia dalam
 - **Multiple-LSB Steganography**: Mendukung 1-4 LSB per sample audio
 - **Enkripsi**: Extended Vigenère Cipher dengan 256 karakter
 - **Random Placement**: Penyisipan data pada posisi acak dengan seed
-- **GUI Modern**: Interface berbasis Tkinter yang user-friendly  
+- **GUI**: Interface berbasis [Tkinter](https://docs.python.org/3/library/tkinter.html)  
 - **PSNR Calculation**: Perhitungan kualitas audio hasil steganografi
 - **Multi-format**: Mendukung MP3 dan WAV
 
@@ -16,26 +16,30 @@ Aplikasi desktop Python untuk menyembunyikan dan mengekstrak pesan rahasia dalam
 ### Prerequisites
 
 - Python 3.10 atau lebih baru
-- FFmpeg (untuk format MP3)
+- [FFmpeg](https://ffmpeg.org/) (untuk memproses file MP3)
 
 ### Instalasi
 
 1. Clone atau download proyek ini
+
 2. Buat virtual environment (jika belum ada):
-```bash
-python -m venv .venv
-.venv\Scripts\activate  # Windows
-# atau
-source .venv/bin/activate  # Linux/Mac
-```
+
+   ```bash
+   python -m venv .venv
+   .venv\Scripts\activate  # Windows
+   # atau
+   source .venv/bin/activate  # Linux/Mac
+   ```
 
 3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+
+   ```bash
+   pip install -r requirements.txt
+   ```
 
 4. Install FFmpeg (untuk support MP3):
-   - Windows: Download dari https://ffmpeg.org/download.html
+
+   - Windows: Download dari [ffmpeg.org](https://ffmpeg.org/download.html)
    - Ubuntu/Debian: `sudo apt install ffmpeg`
    - macOS: `brew install ffmpeg`
 
@@ -71,20 +75,9 @@ python app.py
 4. **Klik "Extract Message"**
 5. **File akan tersimpan** di direktori output
 
-## 🧪 Testing Checklist
-
-Program ini telah ditest dengan skenario berikut:
-
-- ✅ Embed/extract file .txt, .pdf, .png
-- ✅ Enkripsi/dekripsi dengan Extended Vigenère
-- ✅ Semua mode n-LSB (1-4)
-- ✅ Random placement dengan seed konsisten
-- ✅ Warning jika kapasitas tidak cukup
-- ✅ PSNR calculation (target ≥ 30 dB)
-
 ## 🏗️ Struktur Proyek
 
-```
+```text
 tucil2-stegano-gui/
 ├── src/
 │   ├── app.py              # Entry point GUI
@@ -95,7 +88,7 @@ tucil2-stegano-gui/
 │       ├── vigenere.py     # Extended Vigenère Cipher
 │       ├── psnr.py         # PSNR calculator
 │       └── utils.py        # Helper functions
-├── assets/                 # Ikon dan contoh file
+├── assets/                 # contoh file
 ├── tests/                  # Test files
 ├── requirements.txt        # Python dependencies
 └── README.md              # Dokumentasi ini
@@ -131,19 +124,23 @@ tucil2-stegano-gui/
 ## 🐛 Troubleshooting
 
 ### Import Error: numpy/pydub not found
+
 ```bash
 pip install -r requirements.txt
 ```
 
 ### FFmpeg tidak ditemukan
+
 - Windows: Tambahkan FFmpeg ke PATH environment
 - Linux: `sudo apt install ffmpeg`
 
 ### PSNR terlalu rendah
+
 - Kurangi n-LSB (gunakan 1 atau 2)
 - Gunakan audio cover dengan durasi lebih panjang
 
 ### Kapasitas tidak cukup
+
 - Gunakan audio cover yang lebih panjang
 - Tingkatkan n-LSB (dengan konsekuensi PSNR menurun)
 - Kompres file secret terlebih dahulu
@@ -154,8 +151,5 @@ Proyek ini dibuat untuk keperluan tugas kuliah Kriptografi.
 
 ## 👥 Author
 
-**Tucil 2 Kripto** - Steganografi Audio dengan Multiple-LSB
-
----
-
-*Dibuat dengan ❤️ menggunakan Python dan Tkinter*
+- 13522005 - Ahmad Naufal Ramadan
+- 13522032 - Tazkia Nizami

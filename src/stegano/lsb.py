@@ -1,330 +1,425 @@
 """
-Multiple-LSB Steganography untuk audio
-Implementasi embed dan extract dengan 1-4 LSB
+MP3 Multiple-LSB Steganography (v6-fast): metadata-preserving + streaming extractor
+
+Refactor to operate directly on MP3 main-data bytes while keeping the same class name
+and public entry point in the application. Provides file-based APIs used by the GUI.
 """
 
-import numpy as np
-from typing import Optional, Tuple, List
-from .utils import (
-    bytes_to_bits, bits_to_bytes, get_lsb, set_lsb,
-    create_payload, extract_payload, generate_random_positions,
-    calculate_capacity
-)
-from .vigenere import ExtendedVigenereCipher
+import argparse
+import json
+import math
+import mimetypes
+import os
+import random
+import stat
+from hashlib import sha256
+from typing import List, Tuple, Optional
+from zlib import crc32
+
+
+# --------------------------- Extended Vigenère 256 ---------------------------
+def _vigenere256_encrypt(data: bytes, key: str) -> bytes:
+    if not key:
+        return data
+    kb = key.encode("utf-8")
+    out = bytearray(len(data))
+    for i, b in enumerate(data):
+        out[i] = (b + kb[i % len(kb)]) & 0xFF
+    return bytes(out)
+
+
+# --------------------------- Seed from key -----------------------------------
+def _key_to_seed(key: str) -> int:
+    h = sha256(key.encode("utf-8")).digest()
+    return int.from_bytes(h[:4], "big")
+
+
+# --------------------------- Bit helpers ------------------------------------
+def _bytes_to_bits(b: bytes) -> List[int]:
+    return [(b[i // 8] >> (7 - (i % 8))) & 1 for i in range(len(b) * 8)]
+
+
+# --------------------------- MP3 helpers (robust) ----------------------------
+_BITRATE_TABLE = {
+    "1": [None, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, None],
+    "2": [None, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, None],
+    "2.5": [None, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, None],
+}
+
+_SR_TABLE = {
+    "1": [44100, 48000, 32000, None],
+    "2": [22050, 24000, 16000, None],
+    "2.5": [11025, 12000, 8000, None],
+}
+
+
+def _read_synchsafe32(b):
+    return (
+        ((b[0] & 0x7F) << 21)
+        | ((b[1] & 0x7F) << 14)
+        | ((b[2] & 0x7F) << 7)
+        | (b[3] & 0x7F)
+    )
+
+
+def _skip_id3v2(mp3: bytes) -> int:
+    if len(mp3) >= 10 and mp3[:3] == b"ID3":
+        size = _read_synchsafe32(mp3[6:10])
+        total = 10 + size
+        return min(total, len(mp3))
+    return 0
+
+
+def _parse_header_at(mp3: bytes, off: int):
+    if off + 4 > len(mp3):
+        return None
+    b1, b2, b3, b4 = mp3[off : off + 4]
+    if b1 != 0xFF or (b2 & 0xE0) != 0xE0:
+        return None
+    ver_bits = (b2 >> 3) & 0x03
+    layer_bits = (b2 >> 1) & 0x03
+    if layer_bits != 0x01:
+        return None
+    if ver_bits == 0x01:
+        return None
+    version = {0x03: "1", 0x02: "2", 0x00: "2.5"}.get(ver_bits, None)
+    if version is None:
+        return None
+    bitrate_idx = (b3 >> 4) & 0x0F
+    sr_idx = (b3 >> 2) & 0x03
+    padding = (b3 >> 1) & 0x01
+    channel_mode = (b4 >> 6) & 0x03
+
+    if bitrate_idx == 0 or bitrate_idx == 0x0F:
+        return None
+    if sr_idx == 0x03:
+        return None
+    br_kbps = _BITRATE_TABLE[version][bitrate_idx]
+    sr = _SR_TABLE[version][sr_idx]
+    if br_kbps is None or sr is None:
+        return None
+
+    coef = 144 if version == "1" else 72
+    frame_len = int((coef * (br_kbps * 1000)) // sr + padding)
+    if frame_len < 24:
+        return None
+
+    if version == "1":
+        side_len = 17 if channel_mode == 3 else 32
+    else:
+        side_len = 9 if channel_mode == 3 else 17
+
+    return {
+        "frame_len": frame_len,
+        "side_len": side_len,
+    }
+
+
+def _collect_frames_and_regions(mp3: bytes, max_main_bytes_per_frame: int = 512):
+    regions = []
+    off = _skip_id3v2(mp3)
+    L = len(mp3)
+    while off + 4 <= L:
+        hdr = _parse_header_at(mp3, off)
+        if not hdr:
+            off += 1
+            continue
+        fsize = hdr["frame_len"]
+        if off + fsize > L:
+            break
+        s = off + 4 + hdr["side_len"]
+        e = min(off + fsize, s + max_main_bytes_per_frame)
+        if s < e:
+            regions.append((s, e))
+        off += fsize
+    return regions
+
+
+# --------------------------- Header & constants ------------------------------
+_MAGIC = b"MLSBv3"
+_FLAG_ENCRYPTED = 1 << 0
+_FLAG_RANDOM_START = 1 << 1
+_HEADER_LEN_FIXED = 22
+
+
+# --------------------------- PSNR --------------------------------------------
+def _compute_psnr(a: bytes, b: bytes) -> float:
+    assert len(a) == len(b)
+    if len(a) == 0:
+        return float("inf")
+    mse = 0.0
+    for x, y in zip(a, b):
+        d = x - y
+        mse += d * d
+    mse /= len(a)
+    if mse == 0:
+        return float("inf")
+    MAX = 255.0
+    return 10.0 * math.log10((MAX * MAX) / mse)
+
+
+# --------------------------- Metadata helpers --------------------------------
+def _file_metadata(path: str, payload: bytes) -> dict:
+    st = os.stat(path)
+    base = os.path.basename(path)
+    _, ext = os.path.splitext(base)
+    mime, _ = mimetypes.guess_type(base)
+    return {
+        "filename": base,
+        "ext": ext,
+        "mime": mime or "application/octet-stream",
+        "size": len(payload),
+        "mtime": int(st.st_mtime),
+        "mode": stat.S_IMODE(st.st_mode),
+        "sha256": sha256(payload).hexdigest(),
+    }
+
+
+def _apply_metadata(path: str, meta: dict):
+    try:
+        if "mode" in meta:
+            try:
+                os.chmod(path, meta["mode"])
+            except Exception:
+                pass
+        if "mtime" in meta:
+            try:
+                os.utime(path, (meta["mtime"], meta["mtime"]))
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def _resolve_output_path(out_path: Optional[str], meta: dict) -> str:
+    fn = (
+        meta.get("filename", "recovered.bin")
+        if isinstance(meta, dict)
+        else "recovered.bin"
+    )
+    if not out_path or out_path.strip() == "":
+        return fn
+    if os.path.isdir(out_path) or out_path.endswith(os.sep):
+        os.makedirs(out_path, exist_ok=True)
+        return os.path.join(out_path, fn)
+    parent = os.path.dirname(out_path)
+    if parent and not os.path.exists(parent):
+        os.makedirs(parent, exist_ok=True)
+    return out_path
 
 
 class MultipleLSBSteganography:
     """
-    Kelas untuk steganografi Multiple-LSB pada audio
+    MP3 Multiple-LSB steganography utilities used by the GUI.
+
+    Public file-based methods:
+      - embed_file(in_mp3, payload_path, out_path, key, nlsb, encrypt=True, random_start=True)
+      - extract_file(in_mp3, out_path_or_dir, key, restore_meta=True)
     """
-    
-    def __init__(self):
-        self.cipher = ExtendedVigenereCipher()
-    
-    def embed(self, 
-              audio_samples: np.ndarray,
-              secret_data: bytes,
-              n_lsb: int = 1,
-              filename: str = "",
-              encryption_key: Optional[str] = None,
-              use_random_placement: bool = False,
-              stego_key: Optional[str] = None) -> Tuple[np.ndarray, str]:
-        """
-        Embed secret data ke dalam audio samples
-        
-        Args:
-            audio_samples: Audio samples (numpy array)
-            secret_data: Data rahasia yang akan disembunyikan
-            n_lsb: Jumlah LSB yang digunakan (1-4)
-            filename: Nama file rahasia
-            encryption_key: Kunci enkripsi (None = tidak dienkripsi)
-            use_random_placement: Apakah menggunakan penempatan acak
-            stego_key: Kunci untuk seed random placement
-            
-        Returns:
-            Tuple[np.ndarray, str]: (stego_audio_samples, status_message)
-            
-        Raises:
-            ValueError: Jika parameter tidak valid atau kapasitas tidak cukup
-        """
-        # Validasi parameter
-        if n_lsb < 1 or n_lsb > 4:
+
+    def embed_file(
+        self,
+        mp3_path: str,
+        payload_path: str,
+        out_path: str,
+        key: str,
+        nlsb: int,
+        encrypt: bool = True,
+        random_start: bool = True,
+    ) -> str:
+        if nlsb < 1 or nlsb > 4:
             raise ValueError("n_lsb harus antara 1-4")
-        
-        if len(secret_data) == 0:
-            raise ValueError("Secret data tidak boleh kosong")
-        
-        # Konversi ke int16 jika diperlukan
-        if audio_samples.dtype != np.int16:
-            audio_samples = audio_samples.astype(np.int16)
-        
-        # Buat payload (metadata + data)
-        payload = create_payload(secret_data, filename)
-        
-        # Enkripsi jika diperlukan
-        if encryption_key:
-            payload = self.cipher.encrypt(payload, encryption_key)
-        
-        # Konversi payload ke bits
-        payload_bits = bytes_to_bits(payload)
-        
-        # Hitung kebutuhan samples
-        bits_per_sample = n_lsb
-        required_samples = (len(payload_bits) + bits_per_sample - 1) // bits_per_sample
-        
-        # Cek kapasitas
-        total_samples = len(audio_samples)
-        if required_samples > total_samples:
-            max_capacity = calculate_capacity(total_samples, n_lsb)
-            payload_size = len(payload)
-            raise ValueError(
-                f"Kapasitas tidak cukup. Dibutuhkan {payload_size} bytes, "
-                f"maksimum {max_capacity} bytes dengan {n_lsb}-LSB"
+        mp3 = open(mp3_path, "rb").read()
+        payload_plain = open(payload_path, "rb").read()
+
+        meta_json = json.dumps(
+            _file_metadata(payload_path, payload_plain), separators=(",", ":")
+        ).encode("utf-8")
+
+        flags = 0
+        data = payload_plain
+        if encrypt:
+            flags |= _FLAG_ENCRYPTED
+            data = _vigenere256_encrypt(data, key)
+        if random_start:
+            flags |= _FLAG_RANDOM_START
+
+        crc = crc32(data) & 0xFFFFFFFF
+        header = (
+            _MAGIC
+            + bytes([flags & 0xFF])
+            + bytes([nlsb & 0xFF])
+            + len(data).to_bytes(4, "big")
+            + crc.to_bytes(4, "big")
+            + len(meta_json).to_bytes(4, "big")
+            + b"\x00\x00"
+            + meta_json
+        )
+
+        message = header + data
+        msg_bits = _bytes_to_bits(message)
+
+        regs = _collect_frames_and_regions(mp3)
+        if not regs:
+            raise RuntimeError("No usable MP3 frames found.")
+        total_bytes_md = sum(e - s for s, e in regs)
+        start_offset = 0
+        if random_start:
+            start_offset = random.Random(_key_to_seed(key)).randrange(0, total_bytes_md)
+        cap_bits = (total_bytes_md - start_offset) * nlsb
+        if cap_bits < len(msg_bits):
+            raise RuntimeError(
+                f"Insufficient capacity: need {len(msg_bits)} bits, have {cap_bits} bits."
             )
-        
-        # Buat salinan audio samples
-        stego_samples = audio_samples.copy()
-        
-        # Tentukan posisi embedding
-        if use_random_placement and stego_key:
-            positions = generate_random_positions(total_samples, required_samples, stego_key)
-        else:
-            positions = list(range(required_samples))
-        
-        # Embed payload bits
-        bit_index = 0
-        for pos in positions:
-            if bit_index >= len(payload_bits):
+
+        mp3_out = bytearray(mp3)
+        bits_idx = 0
+        passed = 0
+        mask = 0xFF ^ ((1 << nlsb) - 1)
+        for s, e in regs:
+            for pos in range(s, e):
+                if passed < start_offset:
+                    passed += 1
+                    continue
+                if bits_idx >= len(msg_bits):
+                    break
+                group = msg_bits[bits_idx : bits_idx + nlsb]
+                v = 0
+                for bit in group:
+                    v = (v << 1) | (bit & 1)
+                mp3_out[pos] = (mp3_out[pos] & mask) | v
+                bits_idx += len(group)
+            if bits_idx >= len(msg_bits):
                 break
-                
-            # Ambil n bits dari payload
-            bits_to_embed = 0
-            for i in range(n_lsb):
-                if bit_index + i < len(payload_bits):
-                    bits_to_embed |= (payload_bits[bit_index + i] << (n_lsb - 1 - i))
-            
-            # Set LSB dari sample
-            stego_samples[pos] = set_lsb(stego_samples[pos], bits_to_embed, n_lsb)
-            bit_index += n_lsb
-        
-        # Status message
-        encryption_status = "encrypted" if encryption_key else "unencrypted"
-        placement_status = "random placement" if use_random_placement else "sequential placement"
-        status = f"Embedded {len(secret_data)} bytes ({encryption_status}, {placement_status}, {n_lsb}-LSB)"
-        
-        return stego_samples, status
-    
-    def extract(self,
-                stego_samples: np.ndarray,
-                n_lsb: int = 1,
-                decryption_key: Optional[str] = None,
-                use_random_placement: bool = False,
-                stego_key: Optional[str] = None) -> Tuple[str, bytes, str]:
-        """
-        Extract secret data dari stego audio
-        
-        Args:
-            stego_samples: Stego audio samples
-            n_lsb: Jumlah LSB yang digunakan saat embedding
-            decryption_key: Kunci dekripsi (None jika tidak terenkripsi)
-            use_random_placement: Apakah menggunakan penempatan acak
-            stego_key: Kunci untuk seed random placement
-            
-        Returns:
-            Tuple[str, bytes, str]: (filename, extracted_data, status_message)
-            
-        Raises:
-            ValueError: Jika ekstraksi gagal atau parameter tidak valid
-        """
-        # Validasi parameter
-        if n_lsb < 1 or n_lsb > 4:
-            raise ValueError("n_lsb harus antara 1-4")
-        
-        # Konversi ke int16 jika diperlukan
-        if stego_samples.dtype != np.int16:
-            stego_samples = stego_samples.astype(np.int16)
-        
-        total_samples = len(stego_samples)
-        
-        # Estimasi posisi embedding untuk membaca metadata
-        # Kita perlu setidaknya 8 bytes untuk metadata minimal (4+4)
-        metadata_bits_needed = 64  # 8 bytes * 8 bits
-        metadata_samples_needed = (metadata_bits_needed + n_lsb - 1) // n_lsb
-        
-        if metadata_samples_needed > total_samples:
-            raise ValueError("Audio terlalu pendek untuk mengandung data tersembunyi")
-        
-        # Tentukan posisi pembacaan
-        if use_random_placement and stego_key:
-            # Untuk random placement, kita perlu estimasi jumlah sample yang dibutuhkan
-            # Kita mulai dengan estimasi untuk metadata, lalu expand sesuai kebutuhan
-            estimated_samples = min(total_samples, total_samples // 2)  # Estimasi konservatif
-            positions = generate_random_positions(total_samples, estimated_samples, stego_key)
-        else:
-            positions = list(range(total_samples))
-        
-        # Extract bits from LSB
-        extracted_bits = []
-        for pos in positions:
-            lsb_value = get_lsb(stego_samples[pos], n_lsb)
-            
-            # Konversi lsb_value ke bits (MSB first)
-            for i in range(n_lsb - 1, -1, -1):
-                extracted_bits.append((lsb_value >> i) & 1)
-        
-        # Coba parse metadata untuk mendapatkan panjang data sebenarnya
-        try:
-            # Debug informasi
-            print(f"Debug: Total extracted bits: {len(extracted_bits)}")
-            
-            # Pertama, coba baca panjang filename (4 bytes = 32 bits)
-            if len(extracted_bits) < 32:
-                raise ValueError(f"Tidak cukup bits untuk membaca metadata: {len(extracted_bits)} < 32")
-            
-            filename_length_bits = extracted_bits[:32]
-            filename_length_bytes = bits_to_bytes(filename_length_bits)
-            filename_length = int.from_bytes(filename_length_bytes, 'little')
-            
-            print(f"Debug: Filename length: {filename_length}")
-            
-            # Validasi filename length (tidak boleh terlalu besar)
-            if filename_length > 1000:  # Maksimal 1000 karakter untuk filename
-                raise ValueError(f"Filename length tidak valid ({filename_length}), kemungkinan bukan stego audio atau parameter ekstraksi salah")
-            
-            # Hitung total bits yang dibutuhkan untuk payload lengkap
-            # 4 (filename_length) + filename_length + 4 (data_length) + minimal data
-            min_payload_bytes = 4 + filename_length + 4
-            min_payload_bits = min_payload_bytes * 8
-            
-            if len(extracted_bits) < min_payload_bits:
-                raise ValueError(f"Tidak cukup bits untuk payload lengkap: {len(extracted_bits)} < {min_payload_bits}")
-            
-            # Baca data_length setelah filename
-            data_length_start = 32 + (filename_length * 8)  # Setelah filename_length + filename
-            if len(extracted_bits) < data_length_start + 32:
-                raise ValueError(f"Tidak cukup bits untuk membaca data length: {len(extracted_bits)} < {data_length_start + 32}")
-            
-            data_length_bits = extracted_bits[data_length_start:data_length_start + 32]
-            data_length_bytes = bits_to_bytes(data_length_bits)
-            data_length = int.from_bytes(data_length_bytes, 'little')
-            
-            print(f"Debug: Data length: {data_length}")
-            
-            # Validasi data length
-            if data_length > 100 * 1024 * 1024:  # Maksimal 100MB
-                raise ValueError(f"Data length terlalu besar: {data_length}")
-            
-            # Hitung total payload size
-            total_payload_bytes = 4 + filename_length + 4 + data_length
-            total_payload_bits = total_payload_bytes * 8
-            
-            print(f"Debug: Total payload bits needed: {total_payload_bits}")
-            
-            if len(extracted_bits) < total_payload_bits:
-                raise ValueError(f"Tidak cukup bits untuk payload lengkap: {len(extracted_bits)} < {total_payload_bits}")
-            
-            # Extract payload lengkap
-            payload_bits = extracted_bits[:total_payload_bits]
-            payload_bytes = bits_to_bytes(payload_bits)
-            
-            print(f"Debug: Extracted payload bytes: {len(payload_bytes)}")
-            
-        except Exception as e:
-            raise ValueError(f"Gagal membaca metadata: {str(e)}")
-        
-        # Dekripsi jika diperlukan
-        if decryption_key:
-            try:
-                payload_bytes = self.cipher.decrypt(payload_bytes, decryption_key)
-            except Exception as e:
-                raise ValueError(f"Gagal dekripsi: {str(e)}")
-        
-        # Extract filename dan data
-        try:
-            filename, extracted_data = extract_payload(payload_bytes)
-        except Exception as e:
-            raise ValueError(f"Gagal parse payload: {str(e)}")
-        
-        # Status message
-        decryption_status = "decrypted" if decryption_key else "unencrypted"
-        placement_status = "random placement" if use_random_placement else "sequential placement"
-        status = f"Extracted {len(extracted_data)} bytes ({decryption_status}, {placement_status}, {n_lsb}-LSB)"
-        
-        return filename, extracted_data, status
+        if bits_idx < len(msg_bits):
+            raise RuntimeError("Unexpected: capacity ran out after pre-check.")
 
-
-def test_lsb_steganography():
-    """
-    Test function untuk LSB steganography
-    """
-    # Buat audio samples dummy
-    sample_rate = 44100
-    duration = 2  # 2 detik
-    t = np.linspace(0, duration, sample_rate * duration)
-    
-    # Sinyal sinus sederhana
-    frequency = 440  # A4
-    audio_samples = (np.sin(2 * np.pi * frequency * t) * 16000).astype(np.int16)
-    
-    # Data rahasia
-    secret_data = b"Hello, this is a secret message for testing LSB steganography!"
-    filename = "secret.txt"
-    
-    # Test parameter
-    n_lsb = 2
-    encryption_key = "mysecretkey"
-    stego_key = "randomseed"
-    
-    print("Testing Multiple-LSB Steganography")
-    print(f"Original audio shape: {audio_samples.shape}")
-    print(f"Secret data: {len(secret_data)} bytes")
-    print(f"Using {n_lsb}-LSB with encryption and random placement")
-    
-    # Initialize steganography
-    stegano = MultipleLSBSteganography()
-    
-    try:
-        # Test embedding
-        stego_samples, embed_status = stegano.embed(
-            audio_samples=audio_samples,
-            secret_data=secret_data,
-            n_lsb=n_lsb,
-            filename=filename,
-            encryption_key=encryption_key,
-            use_random_placement=True,
-            stego_key=stego_key
+        psnr = _compute_psnr(mp3, bytes(mp3_out))
+        open(out_path, "wb").write(mp3_out)
+        print(f"PSNR (cover vs stego): {psnr:.2f} dB")
+        print(
+            f"Embedded {len(message)} bytes (header+meta+payload) using {nlsb}-LSB "
+            f"(encrypt={'on' if encrypt else 'off'}, random_start={'on' if random_start else 'off'}) into '{out_path}'."
         )
-        
-        print(f"Embed status: {embed_status}")
-        
-        # Test extraction
-        extracted_filename, extracted_data, extract_status = stegano.extract(
-            stego_samples=stego_samples,
-            n_lsb=n_lsb,
-            decryption_key=encryption_key,
-            use_random_placement=True,
-            stego_key=stego_key
+        return out_path
+
+    def extract_file(
+        self,
+        mp3_path: str,
+        out_path: Optional[str],
+        key: str,
+        restore_meta: bool = True,
+    ) -> Tuple[str, int, str]:
+        mp3 = open(mp3_path, "rb").read()
+        regs = _collect_frames_and_regions(mp3)
+        if not regs:
+            raise RuntimeError("No MP3 frames/regions found.")
+        stream = bytearray()
+        for s, e in regs:
+            stream.extend(mp3[s:e])
+        total_bytes = len(stream)
+        if total_bytes == 0:
+            raise RuntimeError("Main-data stream empty.")
+
+        cand_offsets = [0, random.Random(_key_to_seed(key)).randrange(0, total_bytes)]
+
+        for n in (1, 2, 3, 4):
+            for off in cand_offsets:
+                br = _BitStreamReader(stream, off, n)
+                fixed = br.read(_HEADER_LEN_FIXED)
+                if (
+                    len(fixed) != _HEADER_LEN_FIXED
+                    or fixed[:6] != _MAGIC
+                    or fixed[7] != n
+                ):
+                    continue
+                flags = fixed[6]
+                payload_len = int.from_bytes(fixed[8:12], "big")
+                crc_hdr = int.from_bytes(fixed[12:16], "big")
+                meta_len = int.from_bytes(fixed[16:20], "big")
+                meta_bytes = br.read(meta_len)
+                if len(meta_bytes) != meta_len:
+                    continue
+                try:
+                    meta = json.loads(meta_bytes.decode("utf-8"))
+                except Exception:
+                    continue
+
+                out_file = _resolve_output_path(out_path, meta)
+                kb = key.encode("utf-8") if (flags & _FLAG_ENCRYPTED) else None
+                km = len(kb) if kb else 0
+
+                crc_calc = 0
+                written = 0
+                try:
+                    with open(out_file, "wb") as f:
+                        CHUNK = 1 << 16
+                        while written < payload_len:
+                            need = min(CHUNK, payload_len - written)
+                            raw = br.read(need)
+                            if len(raw) != need:
+                                raise IOError("Truncated payload in stream")
+                            crc_calc = crc32(raw, crc_calc)
+                            if kb:
+                                dec = bytearray(need)
+                                for i, b in enumerate(raw):
+                                    dec[i] = (b - kb[(written + i) % km]) & 0xFF
+                                f.write(dec)
+                            else:
+                                f.write(raw)
+                            written += need
+                except Exception:
+                    try:
+                        if os.path.exists(out_file):
+                            os.remove(out_file)
+                    except Exception:
+                        pass
+                    continue
+
+                if (crc_calc & 0xFFFFFFFF) != crc_hdr:
+                    try:
+                        os.remove(out_file)
+                    except Exception:
+                        pass
+                    continue
+
+                if restore_meta and isinstance(meta, dict):
+                    _apply_metadata(out_file, meta)
+
+                status = (
+                    f"Extracted {written} bytes to '{out_file}' "
+                    f"(nlsb={n}, random_start={'on' if (flags & _FLAG_RANDOM_START) else 'off'}, "
+                    f"encrypted={'yes' if (flags & _FLAG_ENCRYPTED) else 'no'})."
+                )
+                print(status)
+                return out_file, written, status
+
+        raise RuntimeError(
+            "Failed to extract at deterministic offsets. Re-embed and verify the key/options."
         )
-        
-        print(f"Extract status: {extract_status}")
-        print(f"Extracted filename: {extracted_filename}")
-        print(f"Extracted data: {len(extracted_data)} bytes")
-        
-        # Verifikasi
-        success = (
-            filename == extracted_filename and
-            secret_data == extracted_data
-        )
-        
-        print(f"Test result: {'SUCCESS' if success else 'FAILED'}")
-        
-        if success:
-            print(f"Original: {secret_data[:50]}...")
-            print(f"Extracted: {extracted_data[:50]}...")
-        
-    except Exception as e:
-        print(f"Test failed: {str(e)}")
 
 
-if __name__ == "__main__":
-    test_lsb_steganography()
+class _BitStreamReader:
+    def __init__(self, stream: bytes, start_off: int, nlsb: int):
+        self.stream = stream
+        self.pos = start_off
+        self.n = nlsb
+        self.mask = (1 << nlsb) - 1
+        self.bitbuf = 0
+        self.bits_in_buf = 0
+        self.total = len(stream)
+
+    def read(self, k: int) -> bytes:
+        out = bytearray()
+        while len(out) < k:
+            if self.bits_in_buf < 8:
+                if self.pos >= self.total:
+                    break
+                v = self.stream[self.pos] & self.mask
+                self.bitbuf = (self.bitbuf << self.n) | v
+                self.bits_in_buf += self.n
+                self.pos += 1
+                continue
+            out.append((self.bitbuf >> (self.bits_in_buf - 8)) & 0xFF)
+            self.bits_in_buf -= 8
+        return bytes(out)

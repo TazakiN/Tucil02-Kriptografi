@@ -670,8 +670,6 @@ class SteganographyApp:
                 with open(self.secret_file.get(), "rb") as f:
                     secret_data = f.read()
 
-                secret_filename = os.path.basename(self.secret_file.get())
-
                 self.update_progress(30, "Embedding message...")
 
                 # Use the unified key for both encryption and random placement
@@ -760,9 +758,7 @@ class SteganographyApp:
                 self.update_progress(10, "Loading stego audio...")
 
                 # Load stego audio
-                stego_samples, sample_rate = self.audio_handler.load_mp3(
-                    self.stego_file.get()
-                )
+                self.audio_handler.load_mp3(self.stego_file.get())
 
                 self.update_progress(30, "Extracting message...")
 

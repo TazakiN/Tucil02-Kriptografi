@@ -1,12 +1,10 @@
 import numpy as np
 import os
 import subprocess
-import tempfile
 import threading
 import time
 from typing import Tuple, Optional, Callable
 import pygame
-from pygame import mixer
 
 
 class AudioHandler:
@@ -56,51 +54,6 @@ class AudioHandler:
             raise ValueError(f"Gagal load MP3: {e}")
         except Exception as e:
             raise ValueError(f"Gagal load audio: {str(e)}")
-
-    def save_mp3(
-        self,
-        samples: np.ndarray,
-        sample_rate: int,
-        output_path: str,
-        bitrate: str = "128k",
-    ) -> None:
-        try:
-            # Pastikan samples dalam range 16-bit
-            samples = np.clip(samples, -32768, 32767).astype(np.int16)
-
-            # Konversi numpy array ke MP3 menggunakan ffmpeg
-            cmd = [
-                "ffmpeg",
-                "-f",
-                "s16le",  # input format: signed 16-bit little endian
-                "-ar",
-                str(sample_rate),  # sample rate
-                "-ac",
-                "1",  # mono
-                "-i",
-                "-",  # input dari stdin
-                "-b:a",
-                bitrate,  # bitrate
-                "-y",  # overwrite
-                output_path,
-            ]
-
-            # Kirim raw audio data ke ffmpeg via stdin
-            process = subprocess.Popen(
-                cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            stdout, stderr = process.communicate(input=samples.tobytes())
-
-            if process.returncode != 0:
-                raise subprocess.CalledProcessError(process.returncode, cmd, stderr)
-
-        except subprocess.CalledProcessError as e:
-            raise ValueError(f"Gagal save MP3: {e}")
-        except Exception as e:
-            raise ValueError(f"Gagal save audio: {str(e)}")
 
     def get_audio_info(self, file_path: str) -> dict:
         if not os.path.exists(file_path):

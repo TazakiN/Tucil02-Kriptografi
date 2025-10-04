@@ -148,7 +148,7 @@ tucil2-stegano-gui/
 
 - **Kapasitas**: Tergantung durasi audio dan n-LSB yang dipilih
 - **Kualitas**: PSNR akan menurun dengan bertambahnya n-LSB
-- **Format**: MP3 membutuhkan FFmpeg, WAV didukung native
+- **Format**: MP3 membutuhkan FFmpeg
 - **Keamanan**: Enkripsi menggunakan Vigenère (tidak sekuat AES)
 
 ## 🐛 Troubleshooting

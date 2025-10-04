@@ -45,10 +45,40 @@ Aplikasi desktop Python untuk menyembunyikan dan mengekstrak pesan rahasia dalam
 
 ### Menjalankan Aplikasi
 
+#### Opsi 1: Menjalankan dari Source Code
+
 ```bash
 cd src
 python app.py
 ```
+
+#### Opsi 2: Menjalankan File Executable (.exe)
+
+Jika Anda sudah memiliki file executable yang telah dikompilasi (tersedia di folder `dist`):
+
+1. Buka folder `dist` di File Explorer
+2. Double-click file `app.exe`
+3. Aplikasi akan langsung terbuka tanpa perlu instalasi Python atau dependencies
+
+**Catatan**: File `.exe` sudah mencakup semua dependencies yang diperlukan, sehingga Anda tidak perlu menginstal Python atau library tambahan. Namun, untuk menggunakan fitur MP3, FFmpeg tetap harus terinstal di sistem Anda.
+
+#### Opsi 3: Compile Sendiri menjadi Executable
+
+Jika Anda ingin membuat file executable sendiri:
+
+1. Install PyInstaller:
+
+   ```bash
+   pip install pyinstaller
+   ```
+
+2. Compile aplikasi:
+
+   ```bash
+   pyinstaller --onefile --noconsole --icon=assets/headphones.ico src/app.py
+   ```
+
+3. File executable akan tersedia di folder `dist/app.exe`
 
 ## 📖 Cara Penggunaan
 

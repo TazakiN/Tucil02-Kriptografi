@@ -54,6 +54,8 @@ class SteganographyApp:
         self.n_lsb = tk.IntVar(value=2)
         self.key = tk.StringVar()
         self.show_key = tk.BooleanVar()
+        self.use_encryption = tk.BooleanVar(value=True)
+        self.use_random_insert = tk.BooleanVar(value=True)
 
         # Status variables
         self.status_text = tk.StringVar(value="Ready")
@@ -208,6 +210,20 @@ class SteganographyApp:
             key_frame, text="Show", width=6, command=self.toggle_key_visibility
         )
         self.show_key_btn.grid(row=0, column=1)
+
+        # Encryption checkbox
+        ttk.Checkbutton(
+            options_frame,
+            text="Use Encryption",
+            variable=self.use_encryption,
+        ).grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=2)
+
+        # Random Insert checkbox
+        ttk.Checkbutton(
+            options_frame,
+            text="Use Random Insert",
+            variable=self.use_random_insert,
+        ).grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=2)
 
         # Audio Player frame
         player_frame = ttk.LabelFrame(parent, text="Audio Player", padding="5")
@@ -366,6 +382,20 @@ class SteganographyApp:
             extract_key_frame, text="Show", width=6, command=self.toggle_key_visibility
         )
         self.extract_show_key_btn.grid(row=0, column=1)
+
+        # Encryption checkbox
+        ttk.Checkbutton(
+            extract_options_frame,
+            text="Use Encryption",
+            variable=self.use_encryption,
+        ).grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=2)
+
+        # Random Insert checkbox
+        ttk.Checkbutton(
+            extract_options_frame,
+            text="Use Random Insert",
+            variable=self.use_random_insert,
+        ).grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=2)
 
         # Audio Player frame (shared dengan embed tab)
         extract_player_frame = ttk.LabelFrame(parent, text="Audio Player", padding="5")
@@ -662,9 +692,10 @@ class SteganographyApp:
             messagebox.showerror("Error", "Please specify output file")
             return
 
-        if not self.key.get():
+        # Key is required only if encryption or random insert is enabled
+        if (self.use_encryption.get() or self.use_random_insert.get()) and not self.key.get():
             messagebox.showerror(
-                "Error", "Please enter key for encryption and random placement"
+                "Error", "Please enter key for encryption and/or random placement"
             )
             return
 
@@ -691,8 +722,8 @@ class SteganographyApp:
                     out_path=self.output_file.get(),
                     key=unified_key,
                     nlsb=self.n_lsb.get(),
-                    encrypt=True,
-                    random_start=True,
+                    encrypt=self.use_encryption.get(),
+                    random_start=self.use_random_insert.get(),
                 )
 
                 self.update_progress(70, "Calculating PSNR...")
@@ -753,9 +784,10 @@ class SteganographyApp:
             messagebox.showerror("Error", "Please specify output directory")
             return
 
-        if not self.key.get():
+        # Key is required only if encryption or random insert is enabled
+        if (self.use_encryption.get() or self.use_random_insert.get()) and not self.key.get():
             messagebox.showerror(
-                "Error", "Please enter key for decryption and random placement"
+                "Error", "Please enter key for decryption and/or random placement"
             )
             return
 

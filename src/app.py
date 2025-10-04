@@ -1,8 +1,3 @@
-"""
-Aplikasi GUI Steganografi Audio dengan Multiple-LSB
-Menggunakan Tkinter untuk interface pengguna
-"""
-
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
@@ -16,10 +11,6 @@ from stegano import MultipleLSBSteganography, evaluate_audio_quality
 
 
 class SteganographyApp:
-    """
-    Aplikasi GUI untuk steganografi audio
-    """
-
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Steganografi Audio - Multiple LSB")
@@ -69,9 +60,6 @@ class SteganographyApp:
         self.setup_gui()
 
     def setup_gui(self):
-        """
-        Setup GUI components
-        """
         # Main frame dengan padding
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
@@ -125,9 +113,6 @@ class SteganographyApp:
         )
 
     def setup_embed_tab(self, parent):
-        """
-        Setup tab untuk embedding
-        """
         parent.columnconfigure(1, weight=1)
 
         row = 0
@@ -301,9 +286,6 @@ class SteganographyApp:
         embed_btn.grid(row=row, column=0, columnspan=3, pady=20)
 
     def setup_extract_tab(self, parent):
-        """
-        Setup tab untuk extraction
-        """
         parent.columnconfigure(1, weight=1)
 
         row = 0
@@ -487,7 +469,6 @@ class SteganographyApp:
         extract_btn.grid(row=row, column=0, columnspan=3, pady=20)
 
     def browse_cover_file(self):
-        """Browse for cover audio file"""
         filename = filedialog.askopenfilename(
             title="Select Cover Audio (MP3)",
             filetypes=[("MP3 files", "*.mp3"), ("All files", "*.*")],
@@ -496,7 +477,6 @@ class SteganographyApp:
             self.cover_file.set(filename)
 
     def browse_secret_file(self):
-        """Browse for secret file"""
         filename = filedialog.askopenfilename(
             title="Select Secret File",
             filetypes=[
@@ -510,7 +490,6 @@ class SteganographyApp:
             self.secret_file.set(filename)
 
     def browse_output_file(self):
-        """Browse for output file location"""
         filename = filedialog.asksaveasfilename(
             title="Save Stego Audio As (MP3)",
             defaultextension=".mp3",
@@ -520,7 +499,6 @@ class SteganographyApp:
             self.output_file.set(filename)
 
     def browse_stego_file(self):
-        """Browse for stego audio file"""
         filename = filedialog.askopenfilename(
             title="Select Stego Audio (MP3)",
             filetypes=[("MP3 files", "*.mp3"), ("All files", "*.*")],
@@ -532,13 +510,11 @@ class SteganographyApp:
                 self.load_stego_audio_from_file(filename)
 
     def browse_extract_output(self):
-        """Browse for extract output directory"""
         dirname = filedialog.askdirectory(title="Select Output Directory")
         if dirname:
             self.extract_output.set(dirname)
 
     def toggle_key_visibility(self):
-        """Toggle visibility of key in both embed and extract tabs"""
         if self.show_key.get():
             # Hide key
             self.key_entry.config(show="*")
@@ -556,7 +532,6 @@ class SteganographyApp:
 
     # Audio Player Methods
     def load_cover_audio(self):
-        """Load cover audio into player"""
         if self.cover_file.get() and os.path.exists(self.cover_file.get()):
             if self.cover_player.load(self.cover_file.get()):
                 self.update_cover_duration_display()
@@ -564,7 +539,6 @@ class SteganographyApp:
         return False
 
     def toggle_cover_playback(self):
-        """Toggle cover audio playback"""
         if not self.cover_player.current_file:
             if not self.load_cover_audio():
                 messagebox.showerror("Error", "Could not load cover audio file")
@@ -578,16 +552,13 @@ class SteganographyApp:
                 self.update_cover_button_states("⏸")
 
     def stop_cover_playback(self):
-        """Stop cover audio playback"""
         if self.cover_player.stop():
             self.update_cover_button_states("▶")
 
     def update_cover_display(self, position):
-        """Callback untuk update display cover player"""
         self.update_cover_duration_display()
 
     def update_cover_duration_display(self):
-        """Update cover duration display"""
         current = self.cover_player.get_position()
         total = self.cover_player.get_duration()
 
@@ -597,7 +568,6 @@ class SteganographyApp:
         self.cover_duration.set(f"{current_str} / {total_str}")
 
     def toggle_stego_playback(self):
-        """Toggle stego audio playback"""
         if not self.stego_player.current_file:
             if not self.load_stego_audio():
                 messagebox.showerror("Error", "Could not load stego audio file")
@@ -611,12 +581,10 @@ class SteganographyApp:
                 self.update_stego_button_states("⏸")
 
     def stop_stego_playback(self):
-        """Stop stego audio playback"""
         if self.stego_player.stop():
             self.update_stego_button_states("▶")
 
     def load_stego_audio(self):
-        """Load stego audio into player"""
         if self.output_file.get() and os.path.exists(self.output_file.get()):
             if self.stego_player.load(self.output_file.get()):
                 self.update_stego_duration_display()
@@ -629,11 +597,9 @@ class SteganographyApp:
         return False
 
     def update_stego_display(self, position):
-        """Callback untuk update display stego player"""
         self.update_stego_duration_display()
 
     def update_stego_duration_display(self):
-        """Update stego duration display"""
         current = self.stego_player.get_position()
         total = self.stego_player.get_duration()
 
@@ -643,7 +609,6 @@ class SteganographyApp:
         self.stego_duration.set(f"{current_str} / {total_str}")
 
     def load_stego_audio_from_file(self, file_path):
-        """Load stego audio dari file path yang diberikan"""
         if file_path and os.path.exists(file_path):
             if self.stego_player.load(file_path):
                 self.update_stego_duration_display()
@@ -656,29 +621,24 @@ class SteganographyApp:
         return False
 
     def update_cover_button_states(self, text):
-        """Update cover button states di kedua tab"""
         self.cover_play_btn.config(text=text)
         self.extract_cover_play_btn.config(text=text)
 
     def update_stego_button_states(self, text):
-        """Update stego button states di kedua tab"""
         self.stego_play_btn.config(text=text)
         self.extract_stego_play_btn.config(text=text)
 
     def format_time(self, seconds):
-        """Format time in MM:SS format"""
         minutes = int(seconds // 60)
         seconds = int(seconds % 60)
         return f"{minutes:02d}:{seconds:02d}"
 
     def update_progress(self, value, status="Processing..."):
-        """Update progress bar and status"""
         self.progress_var.set(value)
         self.status_text.set(status)
         self.root.update_idletasks()
 
     def embed_message(self):
-        """Embed secret message into cover audio"""
         # Validasi input
         if not self.cover_file.get():
             messagebox.showerror("Error", "Please select cover audio file")
@@ -693,7 +653,9 @@ class SteganographyApp:
             return
 
         # Key is required only if encryption or random insert is enabled
-        if (self.use_encryption.get() or self.use_random_insert.get()) and not self.key.get():
+        if (
+            self.use_encryption.get() or self.use_random_insert.get()
+        ) and not self.key.get():
             messagebox.showerror(
                 "Error", "Please enter key for encryption and/or random placement"
             )
@@ -774,7 +736,6 @@ class SteganographyApp:
         thread.start()
 
     def extract_message(self):
-        """Extract secret message from stego audio"""
         # Validasi input
         if not self.stego_file.get():
             messagebox.showerror("Error", "Please select stego audio file")
@@ -785,7 +746,9 @@ class SteganographyApp:
             return
 
         # Key is required only if encryption or random insert is enabled
-        if (self.use_encryption.get() or self.use_random_insert.get()) and not self.key.get():
+        if (
+            self.use_encryption.get() or self.use_random_insert.get()
+        ) and not self.key.get():
             messagebox.showerror(
                 "Error", "Please enter key for decryption and/or random placement"
             )
@@ -841,13 +804,11 @@ class SteganographyApp:
         thread.start()
 
     def run(self):
-        """Run the application"""
         # Setup cleanup when window is closed
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.root.mainloop()
 
     def on_closing(self):
-        """Handle application closing"""
         try:
             # Cleanup audio players
             self.cover_player.cleanup()
@@ -859,7 +820,6 @@ class SteganographyApp:
 
 
 def main():
-    """Main function"""
     try:
         app = SteganographyApp()
         app.run()

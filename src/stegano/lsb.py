@@ -1,10 +1,3 @@
-"""
-MP3 Multiple-LSB Steganography (v6-fast): metadata-preserving + streaming extractor
-
-Refactor to operate directly on MP3 main-data bytes while keeping the same class name
-and public entry point in the application. Provides file-based APIs used by the GUI.
-"""
-
 import argparse
 import json
 import math
